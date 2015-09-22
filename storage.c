@@ -18,8 +18,9 @@ static const char *status2string( int32_t status ) {
 
 static size_t hex2string( char *dst_str, const void *hex, size_t hex_size ) {
     char *tmp = dst_str;
+    size_t i;
 
-    for ( size_t i = 0; i < hex_size; ++i )
+    for ( i = 0; i < hex_size; ++i )
         tmp += sprintf( tmp, "%02X", ((uint8_t *) hex )[i] );
 
     return tmp - dst_str;

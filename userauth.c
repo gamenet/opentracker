@@ -9,7 +9,8 @@ char *g_auth_salt;
 
 
 static void string2hex( void *dst_hex, size_t hex_size, const char *str ) {
-  for ( size_t i = 0; i < hex_size; ++i, str += 2 ) {
+  size_t i;
+  for ( i = 0; i < hex_size; ++i, str += 2 ) {
     sscanf( str, "%02hhx", &((char *) dst_hex )[i] );
   }
 }
