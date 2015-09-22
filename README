@@ -1,5 +1,7 @@
 This is opentracker. An open bittorrent tracker.
 
+It's a bit modified to collect download statistics from gamenet application. It uses redis backend to store data - `lastUpdated` set with last updated users. And one hset per each user. Hset fields are concatenated string separated by dot - torrent hash, connection id, event name. You may find two special fields - status and time. They used to aggregate data per time. Also we use hset `infohash` to calculate hash => aggregate id information.
+
 You need libowfat (http://www.fefe.de/libowfat/), hiredis client (https://github.com/redis/hiredis) and OpenSSL crypto library (https://www.openssl.org/). If you are going to store dl/ul statistics locally, you need Redis (http://redis.io/) daemon running as well.
 
 Steps to go:
