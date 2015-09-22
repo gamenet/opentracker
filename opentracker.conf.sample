@@ -104,3 +104,18 @@
 #      redirect to another location (shell option -r).
 #
 # tracker.redirect_url https://your.tracker.local/
+
+# VII) Enable feature that store torrent dl/ul statistics to
+#      Redis database
+#storage.enabled true
+
+# VIII)Authorization salt used to identify statistics sent from users
+#      hash=SHA1(userId + salt)
+#
+#auth.salt dGFzdHlzYWx0
+
+# IX)  Address and port of Redis server which collects
+#      dl/ul statistics from users
+#
+#storage.redis.ip 127.0.0.1
+#storage.redis.port 6379

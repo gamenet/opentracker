@@ -36,6 +36,8 @@
 #include "ot_accesslist.h"
 #include "ot_stats.h"
 #include "ot_livesync.h"
+#include "storage.h"
+#include "userauth.h"
 
 /* Globals */
 time_t       g_now_seconds;
@@ -455,6 +457,15 @@ int parse_configfile( char * config_filename ) {
       if( !scan_ip6_port( p+24, tmpip, &tmpport )) goto parse_error;
       livesync_bind_mcast( tmpip, tmpport );
 #endif
+    } else if(!byte_diff(p, 15, "storage.enabled") && isspace(p[15])) {
+      if( !memcmp( p+16, "true", 4 )) g_storage_enabled = 1;
+    } else if(!byte_diff(p, 16, "storage.redis.ip") && isspace(p[16])) {
+      if( !scan_ip6( p+17, tmpip )) goto parse_error;
+      set_config_option( &g_storage_ip, p+17 );
+    } else if(!byte_diff(p, 18, "storage.redis.port") && isspace(p[18])) {
+      if( !scan_short( p+19, &g_storage_port ) ) goto parse_error;
+    } else if(!byte_diff(p, 9, "auth.salt") && isspace(p[9])) {
+      set_config_option( &g_auth_salt, p+10);
     } else
       fprintf( stderr, "Unhandled line in config file: %s\n", inbuf );
     continue;
