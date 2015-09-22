@@ -1,6 +1,6 @@
 This is opentracker. An open bittorrent tracker.
 
-You need libowfat (http://www.fefe.de/libowfat/).
+You need libowfat (http://www.fefe.de/libowfat/), hiredis client (https://github.com/redis/hiredis) and OpenSSL crypto library (https://www.openssl.org/). If you are going to store dl/ul statistics locally, you need Redis (http://redis.io/) daemon running as well.
 
 Steps to go:
 
