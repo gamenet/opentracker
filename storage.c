@@ -6,7 +6,7 @@
 char *g_storage_ip;
 short g_storage_port;
 int   g_storage_enabled;
-static redisContext *g_ctx;
+static redisContext *g_redis_ctx;
 
 
 static const char *status2string( int32_t status ) {
@@ -30,18 +30,18 @@ void storage_init() {
     if ( !g_storage_ip || !g_storage_port )
         exerr( "No remote address for redis storage specified." );
 
-    g_ctx = redisConnect( g_storage_ip, g_storage_port );
-    if ( g_ctx != NULL && g_ctx->err ) {
-        fprintf( stderr, "Error: %s\n", g_ctx->errstr );
+    g_redis_ctx = redisConnect( g_storage_ip, g_storage_port );
+    if ( g_redis_ctx != NULL && g_redis_ctx->err ) {
+        fprintf( stderr, "Error: %s\n", g_redis_ctx->errstr );
         exerr( "Storage init error" );
     }
 }
 
 
 void storage_deinit() {
-    if( g_ctx ) {
-      redisFree( g_ctx );
-      g_ctx = NULL;
+    if( g_redis_ctx ) {
+      redisFree( g_redis_ctx );
+      g_redis_ctx = NULL;
     }
 }
 
@@ -56,7 +56,7 @@ void storage_set( const ot_storage *item ) {
     hex2string( hash_string, item->info_hash, OT_HASH_COMPARE_SIZE );
     hex2string( conn_id, &item->connection_id, sizeof( item->connection_id ) );
 
-    reply = redisCommand( g_ctx,
+    reply = redisCommand( g_redis_ctx,
                           "HMSET %b %s.%s.downloaded %"PRIi64""
                                   " %s.%s.left %"PRIi64""
                                   " %s.%s.uploaded %"PRIi64""
@@ -71,7 +71,7 @@ void storage_set( const ot_storage *item ) {
     if ( !reply ) goto global_error;
     if ( reply->type == REDIS_REPLY_ERROR ) goto operation_error;
 
-    reply = redisCommand( g_ctx, "SADD %u %b", item->timestamp, item->userId, item->userId_len );
+    reply = redisCommand( g_redis_ctx, "SADD lastUpdated %b", item->userId, item->userId_len );
 
     if ( !reply ) goto global_error;
     if ( reply->type == REDIS_REPLY_ERROR ) goto operation_error;
@@ -79,11 +79,12 @@ void storage_set( const ot_storage *item ) {
     return;
 
 operation_error:
-    fprintf( stderr, "Storage operation error: %s\n", reply->str );
+    fprintf( stderr, "Storage operation error: %s.\n\t userId: %.*s, info_hash: %s\n",
+             reply->str, (int)item->userId_len, item->userId, hash_string );
     return;
 
 global_error:
-    fprintf( stderr, "Storage system error: %s. Reinitializing the storage...\n", g_ctx->errstr );
+    fprintf( stderr, "Storage system error: %s. Reinitializing the storage...\n", g_redis_ctx->errstr );
     /* we need to reinit the storage after global error */
     storage_deinit();
     storage_init();
