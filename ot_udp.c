@@ -60,30 +60,37 @@ static void udp_make_connectionid( uint32_t connid[2], const ot_ip6 remoteip, in
 }
 
 /* parse request string and fill structs with credentials on success */
-static int parse_request_string( char *packet, ot_auth *auth, ot_storage *storage ) {
+static int parse_request_string( char *string, uint8_t string_length, ot_auth *auth, ot_storage *storage ) {
   int ret = 1;  /* success by default */
   int scanon = 1;
+
+  /* duplicate req_string as an original one has no null-terminator needed for parser */
+  char *req_string = strndup(string, string_length);
+  string = req_string;  /* we need tmp string to keep an address untouched for free() */
+  if( req_string == NULL )
+    exerr("Out of memory while parsing request string");
 
   static const ot_keywords g_request_str_key[] =
           { { "userId", 1 }, { "hash", 2 }, { NULL, -3 } };
 
   /* scan for '?' */
-  if ( scan_urlencoded_query( &packet, packet, SCAN_PATH ) == -2 )
-    return 0;
+  if ( scan_urlencoded_query( &req_string, req_string, SCAN_PATH ) == -2 )
+    goto error;
 
   while ( scanon ) {
-    switch ( scan_find_keywords( g_request_str_key, &packet, SCAN_SEARCHPATH_PARAM )) {
+    switch ( scan_find_keywords( g_request_str_key, &req_string, SCAN_SEARCHPATH_PARAM )) {
       case -2: scanon = 0; break;   /* TERMINATOR */
       case -1: /* PARSE ERROR */
-      case -3: scan_urlencoded_skipvalue( &packet ); break;
+      case -3: scan_urlencoded_skipvalue( &req_string ); break;
       case 1: /* userId */
-        auth->userId_len = (size_t)scan_urlencoded_query( &packet, auth->userId = storage->userId = packet, SCAN_SEARCHPATH_VALUE );
+        auth->userId_len = (size_t)scan_urlencoded_query( &req_string, auth->userId = storage->userId = req_string, SCAN_SEARCHPATH_VALUE );
         break;
       case 2: /* hash */
-        auth->user_hash_len = (size_t)scan_urlencoded_query( &packet, auth->user_hash = packet, SCAN_SEARCHPATH_VALUE );
+        auth->user_hash_len = (size_t)scan_urlencoded_query( &req_string, auth->user_hash = req_string, SCAN_SEARCHPATH_VALUE );
         break;
     }
   }
+  free(string);
 
   /* user hash or user name not found  */
   if ( auth->userId_len <= 0 || auth->user_hash_len <= 0 )
@@ -92,6 +99,9 @@ static int parse_request_string( char *packet, ot_auth *auth, ot_storage *storag
   storage->userId_len = auth->userId_len;
 
   return ret;
+error:
+  free(string);
+  return 0;
 }
 
 /* UDP implementation according to http://xbtt.sourceforge.net/udp_tracker_protocol.html */
@@ -102,11 +112,12 @@ int handle_udp6( int64 serversocket, struct ot_workstruct *ws ) {
   uint32_t    numwant, event, scopeid;
   uint32_t    connid[2];
   uint32_t    action;
-  uint16_t    port, remoteport, extensions;
+  uint16_t    port, remoteport;
   size_t      byte_count, scrape_count;
   ot_auth     auth;
   ot_storage  item;
   char       *req_str;
+  uint8_t     extensions = 0, string_len;
 
   byte_count = socket_recv6( serversocket, ws->inbuf, G_INBUF_SIZE, remoteip, &remoteport, &scopeid );
   if( !byte_count ) return 0;
@@ -176,18 +187,25 @@ int handle_udp6( int64 serversocket, struct ot_workstruct *ws ) {
       event      = ntohl( inpacket[80/4] );
       port       = *(uint16_t*)( ((char*)inpacket) + 96 );
       ws->hash   = (ot_hash*)( ((char*)inpacket) + 16 );
-      extensions = byte_count<100 ? (uint16)0 : *(uint16_t*)( ((char*)inpacket) + 98 );
 
-      if( extensions & 1) { /* skip UDP auth part if it's presented*/
-        req_str = ((char*)inpacket) + 100 + *(int8_t*)( ((char*)inpacket) + 100 ) + sizeof(int8_t) + sizeof(uint8_t[8]);
+      if( byte_count > 100 ) { /* we got at least one extension */
+        extensions = *(uint8_t*)( ((char*)inpacket) + 98 );
+        string_len = *(uint8_t*)( ((char*)inpacket) + 99 );
+      }
+
+      if( extensions & 1 ) { /* skip UDP auth part if it's presented */
+        req_str    = (char*)inpacket + 100 + string_len + sizeof(uint8_t[8]) + sizeof(uint8_t);
+        string_len = req_str <= (char*)inpacket + byte_count
+                     ? *(uint8_t*)( req_str - sizeof(uint8_t) )
+                     : (uint8_t)0;
       } else { /* Request string */
-        req_str = (char*)inpacket + 100;
+        req_str    = (char*)inpacket + 100;
       }
 
       if( extensions & 2
           && g_storage_enabled
-          && parse_request_string( req_str, &auth, &item )
-          && auth_user( &auth ) ) {
+          && parse_request_string( req_str, string_len, &auth, &item )
+          && auth_user( &auth )) {
 
         item.downloaded     = (int64_t) be64toh(*(uint64_t*)( ((char*)inpacket) + 56 ));
         item.uploaded       = (int64_t) be64toh(*(uint64_t*)( ((char*)inpacket) + 72 ));
