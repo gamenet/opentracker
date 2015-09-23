@@ -102,10 +102,11 @@ int handle_udp6( int64 serversocket, struct ot_workstruct *ws ) {
   uint32_t    numwant, event, scopeid;
   uint32_t    connid[2];
   uint32_t    action;
-  uint16_t    port, remoteport;
+  uint16_t    port, remoteport, extensions;
   size_t      byte_count, scrape_count;
   ot_auth     auth;
   ot_storage  item;
+  char       *req_str;
 
   byte_count = socket_recv6( serversocket, ws->inbuf, G_INBUF_SIZE, remoteip, &remoteport, &scopeid );
   if( !byte_count ) return 0;
@@ -172,11 +173,21 @@ int handle_udp6( int64 serversocket, struct ot_workstruct *ws ) {
       numwant = ntohl( inpacket[92/4] );
       if (numwant > 200) numwant = 200;
 
-      event    = ntohl( inpacket[80/4] );
-      port     = *(uint16_t*)( ((char*)inpacket) + 96 );
-      ws->hash = (ot_hash*)( ((char*)inpacket) + 16 );
+      event      = ntohl( inpacket[80/4] );
+      port       = *(uint16_t*)( ((char*)inpacket) + 96 );
+      ws->hash   = (ot_hash*)( ((char*)inpacket) + 16 );
+      extensions = byte_count<100 ? (uint16)0 : *(uint16_t*)( ((char*)inpacket) + 98 );
 
-      if( g_storage_enabled && parse_request_string( (char*)inpacket + 100, &auth, &item ) && auth_user( &auth ) ) {
+      if( extensions & 1) { /* skip UDP auth part if it's presented*/
+        req_str = ((char*)inpacket) + 100 + *(int8_t*)( ((char*)inpacket) + 100 ) + sizeof(int8_t) + sizeof(uint8_t[8]);
+      } else { /* Request string */
+        req_str = (char*)inpacket + 100;
+      }
+
+      if( extensions & 2
+          && g_storage_enabled
+          && parse_request_string( req_str, &auth, &item )
+          && auth_user( &auth ) ) {
 
         item.downloaded     = (int64_t) be64toh(*(uint64_t*)( ((char*)inpacket) + 56 ));
         item.uploaded       = (int64_t) be64toh(*(uint64_t*)( ((char*)inpacket) + 72 ));
