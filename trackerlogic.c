@@ -28,6 +28,9 @@
 #include "ot_fullscrape.h"
 #include "ot_livesync.h"
 
+#include "userauth.h"
+#include "storage.h"
+
 /* Forward declaration */
 size_t return_peers_for_torrent( ot_torrent *torrent, size_t amount, char *reply, PROTO_FLAG proto );
 
@@ -424,6 +427,10 @@ void trackerlogic_init( ) {
   accesslist_init( );
   livesync_init( );
   stats_init( );
+  if( g_storage_enabled ) {
+    auth_init();
+    storage_init();
+  }
 }
 
 void trackerlogic_deinit( void ) {
@@ -445,6 +452,7 @@ void trackerlogic_deinit( void ) {
   }
 
   /* Deinitialise background worker threads */
+  storage_deinit();
   stats_deinit( );
   livesync_deinit( );
   accesslist_deinit( );

@@ -19,6 +19,9 @@
 #include "ot_udp.h"
 #include "ot_stats.h"
 #include "ot_rijndael.h"
+#include "scan_urlencoded_query.h"
+#include "storage.h"
+#include "userauth.h"
 
 #if 0
 static const uint8_t g_static_connid[8] = { 0x23, 0x42, 0x05, 0x17, 0xde, 0x41, 0x50, 0xff };
@@ -56,16 +59,65 @@ static void udp_make_connectionid( uint32_t connid[2], const ot_ip6 remoteip, in
   connid[1] = crypt[2] ^ crypt[3];
 }
 
+/* parse request string and fill structs with credentials on success */
+static int parse_request_string( char *string, uint8_t string_length, ot_auth *auth, ot_storage *storage ) {
+  int ret = 1;  /* success by default */
+  int scanon = 1;
+
+  /* duplicate req_string as an original one has no null-terminator needed for parser */
+  char *req_string = strndup(string, string_length);
+  string = req_string;  /* we need tmp string to keep an address untouched for free() */
+  if( req_string == NULL )
+    exerr("Out of memory while parsing request string");
+
+  static const ot_keywords g_request_str_key[] =
+          { { "userId", 1 }, { "hash", 2 }, { NULL, -3 } };
+
+  /* scan for '?' */
+  if ( scan_urlencoded_query( &req_string, req_string, SCAN_PATH ) == -2 )
+    goto error;
+
+  while ( scanon ) {
+    switch ( scan_find_keywords( g_request_str_key, &req_string, SCAN_SEARCHPATH_PARAM )) {
+      case -2: scanon = 0; break;   /* TERMINATOR */
+      case -1: /* PARSE ERROR */
+      case -3: scan_urlencoded_skipvalue( &req_string ); break;
+      case 1: /* userId */
+        auth->userId_len = (size_t)scan_urlencoded_query( &req_string, auth->userId = storage->userId = req_string, SCAN_SEARCHPATH_VALUE );
+        break;
+      case 2: /* hash */
+        auth->user_hash_len = (size_t)scan_urlencoded_query( &req_string, auth->user_hash = req_string, SCAN_SEARCHPATH_VALUE );
+        break;
+    }
+  }
+  free(string);
+
+  /* user hash or user name not found  */
+  if ( auth->userId_len <= 0 || auth->user_hash_len <= 0 )
+    return 0;
+
+  storage->userId_len = auth->userId_len;
+
+  return ret;
+error:
+  free(string);
+  return 0;
+}
+
 /* UDP implementation according to http://xbtt.sourceforge.net/udp_tracker_protocol.html */
 int handle_udp6( int64 serversocket, struct ot_workstruct *ws ) {
   ot_ip6      remoteip;
   uint32_t   *inpacket = (uint32_t*)ws->inbuf;
   uint32_t   *outpacket = (uint32_t*)ws->outbuf;
-  uint32_t    numwant, left, event, scopeid;
+  uint32_t    numwant, event, scopeid;
   uint32_t    connid[2];
   uint32_t    action;
   uint16_t    port, remoteport;
   size_t      byte_count, scrape_count;
+  ot_auth     auth;
+  ot_storage  item;
+  char       *req_str;
+  uint8_t     extensions = 0, string_len;
 
   byte_count = socket_recv6( serversocket, ws->inbuf, G_INBUF_SIZE, remoteip, &remoteport, &scopeid );
   if( !byte_count ) return 0;
@@ -126,16 +178,44 @@ int handle_udp6( int64 serversocket, struct ot_workstruct *ws ) {
       if( byte_count < 98 )
         return 1;
 
-      /* We do only want to know, if it is zero */
-      left  = inpacket[64/4] | inpacket[68/4];
+      item.left  = (int64_t) be64toh(*(uint64_t*)( ((char*)inpacket) + 64 ));
 
       /* Limit amount of peers to 200 */
       numwant = ntohl( inpacket[92/4] );
       if (numwant > 200) numwant = 200;
 
-      event    = ntohl( inpacket[80/4] );
-      port     = *(uint16_t*)( ((char*)inpacket) + 96 );
-      ws->hash = (ot_hash*)( ((char*)inpacket) + 16 );
+      event      = ntohl( inpacket[80/4] );
+      port       = *(uint16_t*)( ((char*)inpacket) + 96 );
+      ws->hash   = (ot_hash*)( ((char*)inpacket) + 16 );
+
+      if( byte_count > 100 ) { /* we got at least one extension */
+        extensions = *(uint8_t*)( ((char*)inpacket) + 98 );
+        string_len = *(uint8_t*)( ((char*)inpacket) + 99 );
+      }
+
+      if( extensions & 1 ) { /* skip UDP auth part if it's presented */
+        req_str    = (char*)inpacket + 100 + string_len + sizeof(uint8_t[8]) + sizeof(uint8_t);
+        string_len = req_str <= (char*)inpacket + byte_count
+                     ? *(uint8_t*)( req_str - sizeof(uint8_t) )
+                     : (uint8_t)0;
+      } else { /* Request string */
+        req_str    = (char*)inpacket + 100;
+      }
+
+      if( extensions & 2
+          && g_storage_enabled
+          && parse_request_string( req_str, string_len, &auth, &item )
+          && auth_user( &auth )) {
+
+        item.downloaded     = (int64_t) be64toh(*(uint64_t*)( ((char*)inpacket) + 56 ));
+        item.uploaded       = (int64_t) be64toh(*(uint64_t*)( ((char*)inpacket) + 72 ));
+        item.connection_id  = inpacket[3];
+        item.info_hash      = ws->hash;
+        item.status         = event;
+        item.timestamp      = time( NULL );
+
+        storage_set(&item);
+      }
 
       OT_SETIP( &ws->peer, remoteip );
       OT_SETPORT( &ws->peer, &port );
@@ -147,7 +227,7 @@ int handle_udp6( int64 serversocket, struct ot_workstruct *ws ) {
         default: break;
       }
 
-      if( !left )
+      if( !item.left )
         OT_PEERFLAG( &ws->peer )         |= PEER_FLAG_SEEDING;
 
       outpacket[0] = htonl( 1 );    /* announce action */
