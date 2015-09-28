@@ -71,15 +71,18 @@ void storage_set( const ot_storage *item ) {
 
     if ( !reply ) goto global_error;
     if ( reply->type == REDIS_REPLY_ERROR ) goto operation_error;
-
+    freeReplyObject(reply);
+    
     reply = redisCommand( g_redis_ctx, "SADD lastUpdated %b", item->userId, item->userId_len );
 
     if ( !reply ) goto global_error;
     if ( reply->type == REDIS_REPLY_ERROR ) goto operation_error;
-
+    freeReplyObject(reply);
+    
     return;
 
 operation_error:
+    freeReplyObject(reply);
     fprintf( stderr, "Storage operation error: %s.\n\t userId: %.*s, info_hash: %s\n",
              reply->str, (int)item->userId_len, item->userId, hash_string );
     return;
