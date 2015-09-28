@@ -66,7 +66,7 @@ static int parse_request_string( char *string, uint8_t string_length, ot_auth *a
 
   /* duplicate req_string as an original one has no null-terminator needed for parser */
   char *req_string = strndup(string, string_length);
-  string = req_string;  /* we need tmp string to keep an address untouched for free() */
+  char *tmp_string = req_string;  /* we need tmp string to keep an address untouched for free() */
   if( req_string == NULL )
     exerr("Out of memory while parsing request string");
 
@@ -83,14 +83,14 @@ static int parse_request_string( char *string, uint8_t string_length, ot_auth *a
       case -1: /* PARSE ERROR */
       case -3: scan_urlencoded_skipvalue( &req_string ); break;
       case 1: /* userId */
-        auth->userId_len = (size_t)scan_urlencoded_query( &req_string, auth->userId = storage->userId = req_string, SCAN_SEARCHPATH_VALUE );
+        auth->userId_len = (size_t)scan_urlencoded_query( &req_string, auth->userId = storage->userId = &string[req_string-tmp_string], SCAN_SEARCHPATH_VALUE );
         break;
       case 2: /* hash */
-        auth->user_hash_len = (size_t)scan_urlencoded_query( &req_string, auth->user_hash = req_string, SCAN_SEARCHPATH_VALUE );
+        auth->user_hash_len = (size_t)scan_urlencoded_query( &req_string, auth->user_hash = &string[req_string-tmp_string], SCAN_SEARCHPATH_VALUE );
         break;
     }
   }
-  free(string);
+  free(tmp_string);
 
   /* user hash or user name not found  */
   if ( auth->userId_len <= 0 || auth->user_hash_len <= 0 )
@@ -100,7 +100,7 @@ static int parse_request_string( char *string, uint8_t string_length, ot_auth *a
 
   return ret;
 error:
-  free(string);
+  free(tmp_string);
   return 0;
 }
 
