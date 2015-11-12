@@ -54,6 +54,9 @@ void storage_set( const ot_storage *item ) {
     char hash_string[OT_HASH_COMPARE_SIZE * 2 + 1] = { };
     char conn_id[sizeof( item->connection_id ) * 2 + 1] = { };
 
+    if ( item->status < 0 || item->status > 3 )
+      return;
+
     hex2string( hash_string, item->info_hash, OT_HASH_COMPARE_SIZE );
     hex2string( conn_id, &item->connection_id, sizeof( item->connection_id ) );
 
