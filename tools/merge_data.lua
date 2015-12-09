@@ -80,6 +80,10 @@ for index, userId in pairs(lastUpdated) do
                     local downloaded = events[hashInfo][sessionId]["downloaded"]
                     local totalKey = "total:" .. userId
 
+                    redis.call("zincrby", "rating:downloaded", downloaded, userId);
+                    redis.call("zincrby", "rating:uploaded", uploaded, userId);
+                    redis.call("zincrby", "rating:downloaded:" .. gameId, downloaded, userId);
+                    redis.call("zincrby", "rating:uploaded:" .. gameId, uploaded, userId);
                     redis.call("hincrby", totalKey, "uploaded", uploaded);
                     redis.call("hincrby", totalKey, "downloaded", downloaded);
                     redis.call("hincrby", totalKey, "uploaded:" .. gameId, uploaded);
